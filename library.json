@@ -1,0 +1,20 @@
+{
+  "name": "Resistive_Sensor",
+  "version": "1.0.0",
+  "description": "Bibliothèque Arduino pour_capteur résistif d'humidité du sol (fils de cuivre). Calcule la résistance du sol et le pourcentage d'humidité.",
+  "keywords": "soil, moisture, sensor, resistive, humidity, agriculture, Arduino",
+  "authors": [
+    {
+      "name": "FOURNET Olivier",
+      "email": "olivier.fournet@free.fr",
+      "url": "https://github.com/Fo170"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fo170/Resistive_Sensor.git"
+  },
+  "frameworks": "Arduino",
+  "source_dir": "src",
+  "headers": "ResistiveSoilSensor.h"
+}

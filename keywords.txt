@@ -1,0 +1,10 @@
+soil
+moisture
+sensor
+resistive
+humidity
+agriculture
+garden
+watering
+irrigation
+watering
