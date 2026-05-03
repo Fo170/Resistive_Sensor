@@ -1,5 +1,15 @@
-#ifndef Resistive_Sensor_h
-#define Resistive_Sensor_h
+/**
+ * @file ResistiveSoilSensor.h
+ * @brief Bibliothèque pour capteur d'humidité du sol résistif (YL-69 / FC-28)
+ * @version 2.0.0
+ * 
+ * Cette bibliothèque gère correctement les deux configurations de montage :
+ * - PULL_UP : Capteur côté GND (montage classique YL-69)
+ * - PULL_DOWN : Capteur côté VCC
+ */
+
+#ifndef ResistiveSoilSensor_h
+#define ResistiveSoilSensor_h
 
 #if ARDUINO >= 100
   #include <Arduino.h>
@@ -7,200 +17,491 @@
   #include <WProgram.h>
 #endif
 
-#define RESISTIVE_SENSOR_VERSION "1.0.0"
+#define RESISTIVE_SENSOR_VERSION "1.1.0"
 
 /**
- * ResistiveSoilSensor - Bibliotheque pour capteur YL-69
+ * @brief Configuration du diviseur de tension
  * 
- * Circuit: Pont diviseur avec pull-up fixe 510K vers VCC
- *          et resistance du sol (variable) vers GND
+ * PULL_UP  : VCC --[Rd]-- A0 --[Rsol]-- GND  (capteur côté GND)
+ *            Sec → V_A0 ≈ VCC, Mouillé → V_A0 ≈ 0V
  * 
- *          VCC --[510K]-- A0 --[Rsol]-- GND
- * 
- * Formules:
- *   V_A0 = VCC * Rsol / (510K + Rsol)
- *   Rsol = 510K * V_A0 / (VCC - V_A0)
+ * PULL_DOWN: VCC --[Rsol]-- A0 --[Rd]-- GND  (capteur côté VCC)
+ *            Sec → V_A0 ≈ 0V, Mouillé → V_A0 ≈ VCC
  */
+enum class PullMode : uint8_t {
+  PULL_UP,    ///< Capteur entre A0 et GND (montage par défaut)
+  PULL_DOWN   ///< Capteur entre VCC et A0
+};
+
+/**
+ * @brief État de l'humidité du sol
+ */
+enum class MoistureLevel : uint8_t {
+  VERY_DRY,   ///< Très sec
+  DRY,        ///< Sec
+  MOIST,      ///< Humide
+  WET,        ///< Mouillé
+  VERY_WET,   ///< Très mouillé / inondé
+  ERROR       ///< Erreur de lecture
+};
+
+/**
+ * @brief Point de calibration pour le capteur
+ */
+struct CalibrationPoint {
+  float resistance;   ///< Résistance en ohms
+  uint8_t percent;    ///< Pourcentage d'humidité correspondant (0-100)
+  
+  CalibrationPoint(float r = 0.0f, uint8_t p = 0) 
+    : resistance(r), percent(p) {}
+};
+
+/**
+ * @brief Données brutes et calculées du capteur
+ */
+struct SensorData {
+  uint16_t rawValue;      ///< Valeur ADC brute (0-1023)
+  float voltage;          ///< Tension mesurée en Volts
+  float soilResistance;   ///< Résistance du sol en ohms
+  float moisturePercent;  ///< Pourcentage d'humidité (0-100)
+  MoistureLevel level;    ///< Niveau qualitatif
+  bool valid;             ///< Données valides ?
+  
+  SensorData() 
+    : rawValue(0), voltage(0.0f), soilResistance(0.0f), 
+      moisturePercent(0.0f), level(MoistureLevel::ERROR), valid(false) {}
+};
 
 class ResistiveSoilSensor {
 public:
-  /**
-   * Constructeur
-   * @param analogPin  Pin analogique (A0, A1, etc.)
-   * @param voltage    Tension d'alimentation VCC (3.3V ou 5V)
-   */
-  ResistiveSoilSensor(uint8_t analogPin, float voltage = 3.3f)
-    : _analogPin(analogPin),
-      _voltage(voltage),
-      _Rmax_SOL_0_pourcent(300.0f),    // Sol sec: Rsol > 300K
-      _Rmin_SOL_100_pourcent(1.5f)     // Sol sature: Rsol ~ 1.5K
-  {}
+  // ============================================================
+  // CONSTANTES
+  // ============================================================
+  
+  static constexpr float DEFAULT_PULL_OHMS = 510000.0f;   ///< 510kΩ
+  static constexpr float DEFAULT_VOLTAGE = 3.3f;          ///< Tension par défaut
+  static constexpr float DEFAULT_DRY_OHMS = 300000.0f;    ///< 300kΩ (sec)
+  static constexpr float DEFAULT_WET_OHMS = 1500.0f;      ///< 1.5kΩ (mouillé)
+  
+  static constexpr uint16_t ADC_MAX = 1023;               ///< Résolution Arduino UNO/Nano
+  static constexpr float VOLTAGE_TOLERANCE = 0.005f;      ///< Seuil de saturation
+  
+  // Seuils pour les niveaux qualitatifs (personnalisables)
+  static constexpr uint8_t THRESHOLD_VERY_DRY = 10;
+  static constexpr uint8_t THRESHOLD_DRY = 30;
+  static constexpr uint8_t THRESHOLD_MOIST = 60;
+  static constexpr uint8_t THRESHOLD_WET = 80;
+
+  // ============================================================
+  // CONSTRUCTEURS
+  // ============================================================
 
   /**
-   * Lit la tension sur le pin analogique
-   * @return Tension en Volts (0 a _voltage)
+   * @brief Constructeur minimal (PULL_UP par défaut)
+   * @param analogPin Pin analogique (A0, A1, etc.)
    */
-  float readVoltage() {
-    return _voltage * analogRead(_analogPin) / 1023.0f;
-  }
+  explicit ResistiveSoilSensor(uint8_t analogPin);
 
   /**
-   * Calcule la resistance du sol en kΩ
-   * 
-   * Formule du pont diviseur:
-   *   V_A0 = VCC * Rsol / (Rd + Rsol)
-   *   => Rsol = Rd * V_A0 / (VCC - V_A0)
-   * 
-   * @return Resistance du sol en kΩ
+   * @brief Constructeur avec mode de pull
+   * @param analogPin Pin analogique
+   * @param mode Mode de montage (PULL_UP ou PULL_DOWN)
    */
-  float readSoilResistance() {
-    float v = readVoltage();
-    // Protection: si V_A0 ≈ 0, sol tres conducteur (court-circuit)
-    if (v <= 0.005f) return 0.0f;
-    // Protection: si V_A0 ≈ VCC, sol tres resistif (circuit ouvert)
-    if (v >= _voltage - 0.005f) return 999999.0f;
-    // Formule CORRECTE: Rd * V_A0 / (VCC - V_A0)
-    return PULLUP_RESISTOR * v / (_voltage - v);
-  }
-
-  float readSoilResistanceKOhms() {
-    return readSoilResistance();
-  }
+  ResistiveSoilSensor(uint8_t analogPin, PullMode mode);
 
   /**
-   * Calcule le pourcentage d'humidite (0-100%)
-   * 
-   * Utilise la calibration par resistance:
-   * - 0%  = sol sec   (R >= _Rmax_SOL_0_pourcent)
-   * - 100% = sol sature (R <= _Rmin_SOL_100_pourcent)
-   * - Interpolation lineaire entre les deux
-   * 
-   * @return Pourcentage d'humidite
+   * @brief Constructeur complet
+   * @param analogPin Pin analogique
+   * @param mode Mode de montage
+   * @param pullOhms Valeur de la résistance de pull (ohms)
+   * @param voltage Tension d'alimentation (Volts)
    */
-  float readMoisturePercent() {
-    float r = readSoilResistance();
-    return calculateMoistureFromResistance(r);
-  }
+  ResistiveSoilSensor(uint8_t analogPin, PullMode mode, 
+                      float pullOhms, float voltage);
+
+  // ============================================================
+  // CONFIGURATION
+  // ============================================================
+
+  /** @brief Définir le mode de montage */
+  void setPullMode(PullMode mode);
+  
+  /** @brief Définir la résistance de pull (ohms) */
+  void setPullResistor(float ohms);
+  
+  /** @brief Définir la tension d'alimentation (Volts) */
+  void setVoltage(float voltage);
+  
+  /** @brief Définir les points de calibration */
+  void setCalibration(float dryOhms, float wetOhms);
+  
+  /** @brief Définir le pin de sortie digitale (D0 du LM393) */
+  void setDigitalPin(uint8_t digitalPin);
+  
+  /** @brief Activer/désactiver le lissage des lectures */
+  void setSmoothing(bool enable, uint8_t samples = 10);
+  
+  /** @brief Définir les seuils pour les niveaux qualitatifs */
+  void setLevelThresholds(uint8_t veryDry, uint8_t dry, 
+                          uint8_t moist, uint8_t wet);
+
+  // ============================================================
+  // LECTURES
+  // ============================================================
+
+  /** @brief Lire toutes les données du capteur */
+  SensorData read();
+  
+  /** @brief Lire la valeur ADC brute (0-1023) */
+  uint16_t readRaw();
+  
+  /** @brief Lire la tension en Volts */
+  float readVoltage();
+  
+  /** @brief Lire la résistance du sol en ohms */
+  float readSoilResistance();
+  
+  /** @brief Lire le pourcentage d'humidité (0-100) */
+  float readMoisturePercent();
+  
+  /** @brief Lire le niveau qualitatif */
+  MoistureLevel readMoistureLevel();
+  
+  /** @brief Lire l'état de la sortie digitale (D0) */
+  bool readDigitalOutput();
+
+  // ============================================================
+  // ACCÈS AUX PARAMÈTRES
+  // ============================================================
+
+  PullMode getPullMode() const;
+  float getPullResistor() const;
+  float getVoltage() const;
+  float getDryOhms() const;
+  float getWetOhms() const;
+  uint8_t getAnalogPin() const;
+  bool hasDigitalPin() const;
+
+  // ============================================================
+  // FONCTIONS UTILITAIRES STATIQUES
+  // ============================================================
 
   /**
-   * Calcule l'humidite depuis une tension donnee
-   * @param voltage  Tension mesuree en Volts
-   * @return Pourcentage d'humidite
+   * @brief Calculer la résistance du sol depuis la tension
+   * @param v Tension mesurée
+   * @param voltage Tension d'alimentation
+   * @param pullOhms Résistance de pull
+   * @param mode Mode de montage
+   * @return Résistance du sol en ohms
    */
-  float readMoisturePercentFromVoltage(float voltage) {
-    if (voltage <= 0.005f) return 100.0f;
-    if (voltage >= _voltage - 0.005f) return 0.0f;
-    // Calcul de Rsol depuis la tension, puis humidite
-    float r = PULLUP_RESISTOR * voltage / (_voltage - voltage);
-    return calculateMoistureFromResistance(r);
-  }
+  static float calculateSoilResistance(float v, float voltage, 
+                                        float pullOhms, PullMode mode);
 
   /**
-   * Configure la tension d'alimentation
-   * @param voltage  Tension en Volts (3.3 ou 5.0)
+   * @brief Calculer le pourcentage d'humidité depuis la résistance
+   * @param resistance Résistance du sol
+   * @param dryOhms Résistance à l'état sec
+   * @param wetOhms Résistance à l'état mouillé
+   * @return Pourcentage (0-100)
    */
-  void setVoltage(float voltage) {
-    _voltage = voltage;
-  }
+  static float calculateMoisturePercent(float resistance, 
+                                         float dryOhms, float wetOhms);
 
   /**
-   * Configure les points de calibration
-   * @param dryResistanceKOhms   Resistance du sol sec en kΩ (defaut: 300)
-   * @param wetResistanceKOhms   Resistance du sol sature en kΩ (defaut: 1.5)
+   * @brief Calculer la tension attendue depuis la résistance
+   * @param resistance Résistance du sol
+   * @param voltage Tension d'alimentation
+   * @param pullOhms Résistance de pull
+   * @param mode Mode de montage
+   * @return Tension attendue en Volts
    */
-  void setCalibration(float dryResistanceKOhms, float wetResistanceKOhms) {
-    _Rmax_SOL_0_pourcent = dryResistanceKOhms;
-    _Rmin_SOL_100_pourcent = wetResistanceKOhms;
-  }
+  static float calculateVoltage(float resistance, float voltage, 
+                                 float pullOhms, PullMode mode);
 
   /**
-   * Lit la sortie digitale D0 du module LM393
-   * @param digitalPin  Pin connecte a D0
-   * @return Etat de la sortie digitale
+   * @brief Convertir un pourcentage en niveau qualitatif
    */
-  bool readDigitalOutput(uint8_t digitalPin) {
-    return digitalRead(digitalPin);
-  }
-
-  static const uint8_t DEFAULT_ANALOG_PIN = A0;
-  static constexpr float PULLUP_RESISTOR = 510.0f;  // Pull-up fixe du YL-69
+  static MoistureLevel percentToLevel(uint8_t percent, 
+                                       uint8_t veryDry, uint8_t dry,
+                                       uint8_t moist, uint8_t wet);
 
 private:
   uint8_t _analogPin;
+  uint8_t _digitalPin;
+  PullMode _pullMode;
+  float _pullOhms;
   float _voltage;
-  float _Rmax_SOL_0_pourcent;
-  float _Rmin_SOL_100_pourcent;
-
-  /**
-   * Calcule l'humidite depuis la resistance du sol
-   */
-  float calculateMoistureFromResistance(float resistance) {
-    // Sol sature ou court-circuit
-    if (resistance <= _Rmin_SOL_100_pourcent) {
-      return 100.0f;
-    }
-    // Sol tres sec ou circuit ouvert
-    if (resistance >= _Rmax_SOL_0_pourcent || resistance > 999900.0f) {
-      return 0.0f;
-    }
-    // Interpolation lineaire entre sec et humide
-    float h = 100.0f * (_Rmax_SOL_0_pourcent - resistance) 
-                  / (_Rmax_SOL_0_pourcent - _Rmin_SOL_100_pourcent);
-    // Clamp
-    if (h > 100.0f) h = 100.0f;
-    if (h < 0.0f) h = 0.0f;
-    return h;
-  }
+  float _dryOhms;
+  float _wetOhms;
+  
+  // Lissage
+  bool _smoothingEnabled;
+  uint8_t _sampleCount;
+  
+  // Seuils
+  uint8_t _thresholdVeryDry;
+  uint8_t _thresholdDry;
+  uint8_t _thresholdMoist;
+  uint8_t _thresholdWet;
+  
+  // Buffer pour lissage
+  float* _samples;
+  uint8_t _sampleIndex;
+  
+  float averageRaw();
+  void addSample(float value);
 };
 
 // ============================================================
-// FONCTIONS UTILITAIRES STATIQUES
+// IMPLÉMENTATION INLINE
 // ============================================================
 
-/**
- * Calcule la resistance du sol depuis la tension mesuree
- * Formule: Rsol = Rd * V_A0 / (VCC - V_A0)
- * 
- * @param v         Tension mesuree en Volts
- * @param voltage   Tension d'alimentation en Volts (defaut: 3.3V)
- * @param pullUp    Resistance pull-up en kΩ (defaut: 510.0k)
- * @return Resistance du sol en kΩ
- */
-float Calcule_Rsol(float v, float voltage = 3.3f, float pullUp = 510.0f) {
-  if (v <= 0.005f) return 0.0f;
-  if (v >= voltage - 0.005f) return 999999.0f;
-  return pullUp * v / (voltage - v);  // CORRIGE: pullUp * v / (voltage - v)
+// --- Constructeurs ---
+
+inline ResistiveSoilSensor::ResistiveSoilSensor(uint8_t analogPin)
+  : _analogPin(analogPin),
+    _digitalPin(255),
+    _pullMode(PullMode::PULL_UP),
+    _pullOhms(DEFAULT_PULL_OHMS),
+    _voltage(DEFAULT_VOLTAGE),
+    _dryOhms(DEFAULT_DRY_OHMS),
+    _wetOhms(DEFAULT_WET_OHMS),
+    _smoothingEnabled(false),
+    _sampleCount(10),
+    _thresholdVeryDry(THRESHOLD_VERY_DRY),
+    _thresholdDry(THRESHOLD_DRY),
+    _thresholdMoist(THRESHOLD_MOIST),
+    _thresholdWet(THRESHOLD_WET),
+    _samples(nullptr),
+    _sampleIndex(0)
+{}
+
+inline ResistiveSoilSensor::ResistiveSoilSensor(uint8_t analogPin, PullMode mode)
+  : ResistiveSoilSensor(analogPin) {
+  _pullMode = mode;
 }
 
-/**
- * Calcule le pourcentage d'humidite depuis la resistance du sol
- * 
- * @param r         Resistance du sol en kΩ
- * @param dryKOhms  Resistance sol sec en kΩ (defaut: 300k)
- * @param wetKOhms  Resistance sol humide en kΩ (defaut: 1.5k)
- * @return Pourcentage d'humidite (0-100%)
- */
-float Calcule_Hsol(float r, float dryKOhms = 300.0f, float wetKOhms = 1.5f) {
-  if (r <= wetKOhms) return 100.0f;
-  if (r >= dryKOhms || r > 999900.0f) return 0.0f;
-  float h = 100.0f * (dryKOhms - r) / (dryKOhms - wetKOhms);
-  if (h > 100.0f) h = 100.0f;
-  if (h < 0.0f) h = 0.0f;
-  return h;
+inline ResistiveSoilSensor::ResistiveSoilSensor(uint8_t analogPin, PullMode mode,
+                                                  float pullOhms, float voltage)
+  : ResistiveSoilSensor(analogPin, mode) {
+  _pullOhms = pullOhms;
+  _voltage = voltage;
 }
 
-/**
- * Calcule la tension attendue pour une resistance de sol donnee
- * Utile pour la calibration et les tests
- * 
- * @param rsol      Resistance du sol en kΩ
- * @param voltage   Tension d'alimentation en Volts (defaut: 3.3V)
- * @param pullUp    Resistance pull-up en kΩ (defaut: 510.0k)
- * @return Tension attendue en Volts
- */
-float Calcule_Tension(float rsol, float voltage = 3.3f, float pullUp = 510.0f) {
-  if (rsol <= 0) return 0.0f;
-  return voltage * rsol / (pullUp + rsol);
+// --- Configuration ---
+
+inline void ResistiveSoilSensor::setPullMode(PullMode mode) {
+  _pullMode = mode;
 }
 
-#endif
+inline void ResistiveSoilSensor::setPullResistor(float ohms) {
+  _pullOhms = ohms;
+}
+
+inline void ResistiveSoilSensor::setVoltage(float voltage) {
+  _voltage = voltage;
+}
+
+inline void ResistiveSoilSensor::setCalibration(float dryOhms, float wetOhms) {
+  _dryOhms = dryOhms;
+  _wetOhms = wetOhms;
+}
+
+inline void ResistiveSoilSensor::setDigitalPin(uint8_t digitalPin) {
+  _digitalPin = digitalPin;
+  pinMode(_digitalPin, INPUT);
+}
+
+inline void ResistiveSoilSensor::setSmoothing(bool enable, uint8_t samples) {
+  if (_samples != nullptr) {
+    delete[] _samples;
+    _samples = nullptr;
+  }
+  
+  _smoothingEnabled = enable;
+  _sampleCount = samples;
+  
+  if (enable && samples > 1) {
+    _samples = new float[samples]();
+    _sampleIndex = 0;
+  }
+}
+
+inline void ResistiveSoilSensor::setLevelThresholds(uint8_t veryDry, uint8_t dry,
+                                                     uint8_t moist, uint8_t wet) {
+  _thresholdVeryDry = veryDry;
+  _thresholdDry = dry;
+  _thresholdMoist = moist;
+  _thresholdWet = wet;
+}
+
+// --- Lectures ---
+
+inline SensorData ResistiveSoilSensor::read() {
+  SensorData data;
+  
+  data.rawValue = readRaw();
+  data.voltage = readVoltage();
+  data.soilResistance = readSoilResistance();
+  data.moisturePercent = readMoisturePercent();
+  data.level = readMoistureLevel();
+  data.valid = (data.level != MoistureLevel::ERROR);
+  
+  return data;
+}
+
+inline uint16_t ResistiveSoilSensor::readRaw() {
+  if (_smoothingEnabled && _samples != nullptr) {
+    return static_cast<uint16_t>(averageRaw());
+  }
+  return analogRead(_analogPin);
+}
+
+inline float ResistiveSoilSensor::readVoltage() {
+  return _voltage * readRaw() / static_cast<float>(ADC_MAX);
+}
+
+inline float ResistiveSoilSensor::readSoilResistance() {
+  float v = readVoltage();
+  return calculateSoilResistance(v, _voltage, _pullOhms, _pullMode);
+}
+
+inline float ResistiveSoilSensor::readMoisturePercent() {
+  float r = readSoilResistance();
+  return calculateMoisturePercent(r, _dryOhms, _wetOhms);
+}
+
+inline MoistureLevel ResistiveSoilSensor::readMoistureLevel() {
+  uint8_t percent = static_cast<uint8_t>(readMoisturePercent());
+  return percentToLevel(percent, _thresholdVeryDry, _thresholdDry,
+                        _thresholdMoist, _thresholdWet);
+}
+
+inline bool ResistiveSoilSensor::readDigitalOutput() {
+  if (_digitalPin == 255) return false;
+  return digitalRead(_digitalPin) == HIGH;
+}
+
+// --- Accesseurs ---
+
+inline PullMode ResistiveSoilSensor::getPullMode() const {
+  return _pullMode;
+}
+
+inline float ResistiveSoilSensor::getPullResistor() const {
+  return _pullOhms;
+}
+
+inline float ResistiveSoilSensor::getVoltage() const {
+  return _voltage;
+}
+
+inline float ResistiveSoilSensor::getDryOhms() const {
+  return _dryOhms;
+}
+
+inline float ResistiveSoilSensor::getWetOhms() const {
+  return _wetOhms;
+}
+
+inline uint8_t ResistiveSoilSensor::getAnalogPin() const {
+  return _analogPin;
+}
+
+inline bool ResistiveSoilSensor::hasDigitalPin() const {
+  return _digitalPin != 255;
+}
+
+// --- Fonctions utilitaires statiques ---
+
+inline float ResistiveSoilSensor::calculateSoilResistance(float v, float voltage,
+                                                           float pullOhms, 
+                                                           PullMode mode) {
+  // Protection contre les valeurs extrêmes
+  if (v <= VOLTAGE_TOLERANCE) {
+    // Tension ≈ 0V
+    return (mode == PullMode::PULL_UP) ? 0.0f : 999999999.0f;
+  }
+  if (v >= voltage - VOLTAGE_TOLERANCE) {
+    // Tension ≈ VCC
+    return (mode == PullMode::PULL_UP) ? 999999999.0f : 0.0f;
+  }
+
+  if (mode == PullMode::PULL_UP) {
+    // PULL_UP: Rsol = Rd * V / (VCC - V)
+    return pullOhms * v / (voltage - v);
+  } else {
+    // PULL_DOWN: Rsol = Rd * (VCC - V) / V
+    return pullOhms * (voltage - v) / v;
+  }
+}
+
+inline float ResistiveSoilSensor::calculateMoisturePercent(float resistance,
+                                                            float dryOhms,
+                                                            float wetOhms) {
+  if (resistance <= wetOhms) return 100.0f;
+  if (resistance >= dryOhms) return 0.0f;
+  if (dryOhms <= wetOhms) return 0.0f;  // Protection division par zéro
+
+  float h = 100.0f * (dryOhms - resistance) / (dryOhms - wetOhms);
+  return constrain(h, 0.0f, 100.0f);
+}
+
+inline float ResistiveSoilSensor::calculateVoltage(float resistance, float voltage,
+                                                    float pullOhms, PullMode mode) {
+  if (resistance < 0.0f) return 0.0f;
+  if (resistance == 0.0f) {
+    return (mode == PullMode::PULL_UP) ? 0.0f : voltage;
+  }
+
+  float totalResistance = pullOhms + resistance;
+  
+  if (mode == PullMode::PULL_UP) {
+    // PULL_UP: V = VCC * Rsol / (Rd + Rsol)
+    return voltage * resistance / totalResistance;
+  } else {
+    // PULL_DOWN: V = VCC * Rd / (Rd + Rsol)
+    return voltage * pullOhms / totalResistance;
+  }
+}
+
+inline MoistureLevel ResistiveSoilSensor::percentToLevel(uint8_t percent,
+                                                          uint8_t veryDry,
+                                                          uint8_t dry,
+                                                          uint8_t moist,
+                                                          uint8_t wet) {
+  if (percent <= veryDry) return MoistureLevel::VERY_DRY;
+  if (percent <= dry) return MoistureLevel::DRY;
+  if (percent <= moist) return MoistureLevel::MOIST;
+  if (percent <= wet) return MoistureLevel::WET;
+  if (percent <= 100) return MoistureLevel::VERY_WET;
+  return MoistureLevel::ERROR;
+}
+
+// --- Méthodes privées ---
+
+inline float ResistiveSoilSensor::averageRaw() {
+  if (_samples == nullptr || _sampleCount == 0) {
+    return static_cast<float>(analogRead(_analogPin));
+  }
+  
+  // Ajouter nouvel échantillon
+  _samples[_sampleIndex] = static_cast<float>(analogRead(_analogPin));
+  _sampleIndex = (_sampleIndex + 1) % _sampleCount;
+  
+  // Calculer la moyenne
+  float sum = 0.0f;
+  for (uint8_t i = 0; i < _sampleCount; i++) {
+    sum += _samples[i];
+  }
+  return sum / _sampleCount;
+}
+
+inline void ResistiveSoilSensor::addSample(float value) {
+  if (_samples != nullptr) {
+    _samples[_sampleIndex] = value;
+    _sampleIndex = (_sampleIndex + 1) % _sampleCount;
+  }
+}
+
+#endif // ResistiveSoilSensor_h

@@ -1,6 +1,6 @@
-# Resistive_Sensor
+# ResistiveSoilSensor
 
-Arduino library for resistive soil moisture sensor YL-69. Calculates soil resistance and humidity percentage from a voltage reading.
+Arduino library for resistive soil moisture sensor. Calculates soil resistance and humidity percentage from voltage reading. Supports both PULL_UP and PULL_DOWN configurations.
 
 ![GitHub last commit](https://img.shields.io/github/last-commit/Fo170/Resistive_Sensor)
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/Fo170/Resistive_Sensor)
@@ -9,43 +9,40 @@ Arduino library for resistive soil moisture sensor YL-69. Calculates soil resist
 
 ## Description
 
-This library reads a resistive soil moisture sensor YL-69. It calculates:
-- Soil resistance (in kΩ) from voltage reading
+This library reads resistive soil moisture sensors (YL-69, FC-28, etc.). It calculates:
+- Soil resistance (in ohms) from voltage reading
 - Moisture percentage (0% = dry, 100% = saturated)
+- Qualitative moisture levels (very dry, dry, moist, wet, very wet)
+- Optional smoothing with moving average
 
-### Circuit (YL-69 Module)
+### Supported Circuits
 
-The YL-69 sensor module uses a **fixed 510kΩ pull-up resistor** connected to VCC:
-
+**PULL_UP (default - YL-69 module):**
 ```
-VCC (3.3V or 5V) ----[Rd = 510kΩ]---- Analog Pin A0 ----[Rsol]---- GND
-```
+VCC --[Rd=510kΩ]-- A0 --[Rsol]-- GND
 
-- **VCC**: Power (3.3V or 5V)
-- **Rd**: Fixed pull-up resistor (510 kΩ on YL-69 module)
-- **Rsol**: Soil resistance (varies with humidity)
-- **A0**: Analog output to Arduino
+- Dry soil → V_A0 → VCC (high resistance)
+- Wet soil → V_A0 → GND (low resistance)
 
-Voltage calculation (pull-up):
-```
-V_A0 = VCC * Rsol / (Rsol + Rd)
+Formula: Rsol = Rd * V / (VCC - V)
 ```
 
-Soil resistance from voltage:
+**PULL_DOWN (alternative):**
 ```
-Rsol = Rd * V_A0 / (VCC - V_A0)
+VCC --[Rsol]-- A0 --[Rd=510kΩ]-- GND
+
+- Dry soil → V_A0 → GND (high resistance)
+- Wet soil → V_A0 → VCC (low resistance)
+
+Formula: Rsol = Rd * (VCC - V) / V
 ```
 
-So:
-- **Dry soil** (high Rsol): V_A0 → VCC (near 3.3V or 5V) = 0% humidity
-- **Wet soil** (low Rsol): V_A0 → GND (near 0V) = 100% humidity
-
-### Sensor Module
+### Sensor Module (YL-69)
 
 The YL-69 sensor module includes:
 - **A0**: Analog output (varies with moisture)
 - **D0**: Digital output (HIGH/LOW based on threshold)
-- **VR1**: Potentiometer to adjust threshold (between GND and VCC)
+- **VR1**: Potentiometer to adjust threshold
 - **Comparator IC** (LM393) for digital output
 - **510kΩ pull-up resistor** (fixed, on PCB)
 
@@ -61,11 +58,6 @@ The YL-69 sensor module includes:
 ### Wiring to Arduino
 
 ![Sensor wiring](capteur%20conductif.png)
-
-### Another sensor 
-is shown for illustrative purposes. The calculation formulas need to be changed.
-
-![Circuit](capteur%20conductif%202.png)
 
 ### Supported Boards
 
@@ -94,7 +86,7 @@ This phenomenon causes the copper to oxidize and degrade within weeks or months,
 3. **Consider capacitive sensors** as a long-term alternative
 4. **Replace the sensor regularly** if you notice drift or incorrect readings
 
-For long-term installations, consider using capacitive soil moisture sensors (capacitive sensing technology).
+For long-term installations, consider using capacitive soil moisture sensors.
 
 ## Installation
 
@@ -122,43 +114,59 @@ Download the `src` folder and rename it to `Resistive_Sensor`, then copy to:
 
 ## Usage
 
-### Basic Example
+### Basic Example (PULL_UP - default)
 
 ```cpp
 #include <ResistiveSoilSensor.h>
 
-// Create sensor object on pin A0
-// Pull-up is fixed at 510kΩ (YL-69 module)
+// Create sensor on pin A0 (default: PULL_UP, 510kΩ, 3.3V)
 ResistiveSoilSensor sensor(A0);
 
 void setup() {
   Serial.begin(115200);
+}
 
-  // Configure voltage (3.3V or 5V)
+void loop() {
+  SensorData data = sensor.read();
+
+  Serial.print("Voltage: ");
+  Serial.print(data.voltage);
+  Serial.print(" V | Resistance: ");
+  Serial.print(data.soilResistance);
+  Serial.print(" Ω | Moisture: ");
+  Serial.print(data.moisturePercent);
+  Serial.print(" % | Level: ");
+  Serial.println(static_cast<int>(data.level));
+
+  delay(1000);
+}
+```
+
+### PULL_DOWN Configuration
+
+```cpp
+#include <ResistiveSoilSensor.h>
+
+// PULL_DOWN: VCC --[Rsol]-- A0 --[Rd]-- GND
+ResistiveSoilSensor sensor(A0, PullMode::PULL_DOWN);
+
+void setup() {
+  Serial.begin(115200);
+  sensor.setPullResistor(510000.0f);
   sensor.setVoltage(3.3f);
 }
 
 void loop() {
-  float voltage = sensor.readVoltage();
-  float resistance = sensor.readSoilResistanceKOhms();
-  float humidity = sensor.readMoisturePercent();
-
-  Serial.print("Tension: ");
-  Serial.print(voltage);
-  Serial.print(" V, Resistance: ");
-  Serial.print(resistance);
-  Serial.print(" kΩ, Humidity: ");
-  Serial.print(humidity);
+  SensorData data = sensor.read();
+  Serial.print("Moisture: ");
+  Serial.print(data.moisturePercent);
   Serial.println(" %");
-
   delay(1000);
 }
 ```
 
 ### Using Digital Output (D0)
 
-The module also provides a digital output (D0) that goes HIGH or LOW based on the threshold set by VR1:
-
 ```cpp
 #include <ResistiveSoilSensor.h>
 
@@ -166,11 +174,11 @@ ResistiveSoilSensor sensor(A0);
 
 void setup() {
   Serial.begin(115200);
-  pinMode(2, INPUT);  // D0 connected to pin D2
+  sensor.setDigitalPin(2);  // D0 connected to pin D2
 }
 
 void loop() {
-  bool digitalState = sensor.readDigitalOutput(2);
+  bool digitalState = sensor.readDigitalOutput();
 
   if (digitalState) {
     Serial.println("Soil is WET enough");
@@ -182,87 +190,215 @@ void loop() {
 }
 ```
 
-**Note**: Adjust VR1 potentiometer to set the desired threshold level.
+### Using Smoothing (Moving Average)
 
-For simpler use without creating an object:
+```cpp
+#include <ResistiveSoilSensor.h>
+
+ResistiveSoilSensor sensor(A0);
+
+void setup() {
+  Serial.begin(115200);
+  sensor.setSmoothing(true, 20);  // Average over 20 samples
+}
+
+void loop() {
+  SensorData data = sensor.read();
+  Serial.print("Smoothed Moisture: ");
+  Serial.print(data.moisturePercent);
+  Serial.println(" %");
+  delay(100);
+}
+```
+
+### Using Static Functions
 
 ```cpp
 #include <ResistiveSoilSensor.h>
 
 void loop() {
-  float v = analogRead(A0) * 3.3 / 1023.0;
+  float v = analogRead(A0) * 3.3f / 1023.0f;
 
-  // Calculate soil resistance (kΩ) - 510kΩ pull-up
-  float r = Calcule_Rsol(v, 3.3, 510.0);
-
-  // Calculate humidity (%)
-  float h = Calcule_Hsol(r);
-  // Or directly from voltage (less accurate)
-  float h2 = Calcule_Hsol_v(v);
+  float r = ResistiveSoilSensor::calculateSoilResistance(v, 3.3f, 510000.0f, PullMode::PULL_UP);
+  float h = ResistiveSoilSensor::calculateMoisturePercent(r, 300000.0f, 1500.0f);
 
   Serial.print("Humidity: ");
-  Serial.println(h);
+  Serial.print(h);
+  Serial.println(" %");
 }
 ```
 
-## Calibration
-
-With pull-up configuration:
-- **Dry soil** (high Rsol): V_A0 → VCC (high voltage, ~3.3V) = 0% humidity
-- **Wet soil** (low Rsol): V_A0 → GND (low voltage, ~0V) = 100% humidity
-
-The default calibration values (may vary with sensor):
-
-| Condition | Rsol | Expected Voltage (3.3V) |
-|----------|------|------------------------|
-| Dry (0%) | > 300 kΩ | ~3.3 V |
-| Wet (100%) | ~1.5 kΩ | ~0 V |
-
-To customize calibration:
+### Custom Thresholds for Moisture Levels
 
 ```cpp
-sensor.setCalibration(300.0f, 1.5f);  // dryKOhms, wetKOhms
-```
+#include <ResistiveSoilSensor.h>
 
-Or using the supply voltage:
+ResistiveSoilSensor sensor(A0);
 
-```cpp
-sensor.setVoltage(5.0f);         // If using 5V instead of 3.3V
+void setup() {
+  Serial.begin(115200);
+
+  // Customize moisture level thresholds
+  // Parameters: veryDry, dry, moist, wet
+  sensor.setLevelThresholds(15, 35, 65, 85);
+}
+
+void loop() {
+  MoistureLevel level = sensor.readMoistureLevel();
+
+  switch (level) {
+    case MoistureLevel::VERY_DRY:
+      Serial.println("🌵 Very Dry - Water now!");
+      break;
+    case MoistureLevel::DRY:
+      Serial.println("🏜️ Dry - Water soon");
+      break;
+    case MoistureLevel::MOIST:
+      Serial.println("🌿 Moist - OK");
+      break;
+    case MoistureLevel::WET:
+      Serial.println("💧 Wet - Good");
+      break;
+    case MoistureLevel::VERY_WET:
+      Serial.println("🌊 Very Wet - Too much water!");
+      break;
+    case MoistureLevel::ERROR:
+      Serial.println("❌ Sensor error");
+      break;
+  }
+
+  delay(1000);
+}
 ```
 
 ## API Reference
 
-### ResistiveSoilSensor Class
+### Enums
 
-#### Constructor
-- `ResistiveSoilSensor(uint8_t analogPin)` - Default (510kΩ pull-up, 3.3V)
-- `ResistiveSoilSensor(uint8_t analogPin, float voltage)` - Custom voltage
+- `PullMode` - Circuit configuration (type-safe enum class)
+  - `PullMode::PULL_UP` - VCC → Rd → A0 → Rsol → GND
+  - `PullMode::PULL_DOWN` - VCC → Rsol → A0 → Rd → GND
 
-#### Methods
-- `readVoltage()` - Returns voltage (V)
-- `readSoilResistance()` - Returns soil resistance (kΩ)
-- `readSoilResistanceKOhms()` - Returns soil resistance (kΩ)
-- `readMoisturePercent()` - Returns humidity (0-100%)
-- `readMoisturePercentFromVoltage(float voltage)` - Calculate humidity from voltage
-- `readDigitalOutput(uint8_t digitalPin)` - Read D0 digital output
-- `setVoltage(float v)` - Set supply voltage
-- `setCalibration(float dry, float wet)` - Set calibration
+- `MoistureLevel` - Qualitative moisture levels
+  - `MoistureLevel::VERY_DRY` - Very dry soil
+  - `MoistureLevel::DRY` - Dry soil
+  - `MoistureLevel::MOIST` - Moist soil
+  - `MoistureLevel::WET` - Wet soil
+  - `MoistureLevel::VERY_WET` - Very wet / saturated soil
+  - `MoistureLevel::ERROR` - Invalid reading
 
-#### Constants
-- `PULLUP_RESISTOR` - Fixed pull-up value (510.0f kΩ)
+### Structures
+
+- `SensorData` - Complete sensor reading
+  - `uint16_t rawValue` - Raw ADC value (0-1023)
+  - `float voltage` - Measured voltage in Volts
+  - `float soilResistance` - Soil resistance in ohms
+  - `float moisturePercent` - Moisture percentage (0-100)
+  - `MoistureLevel level` - Qualitative level
+  - `bool valid` - Data validity flag
+
+- `CalibrationPoint` - Calibration point
+  - `float resistance` - Resistance in ohms
+  - `uint8_t percent` - Corresponding moisture percentage
+
+### Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `DEFAULT_PULL_OHMS` | 510000.0f | Default pull resistor (510kΩ) |
+| `DEFAULT_VOLTAGE` | 3.3f | Default supply voltage |
+| `DEFAULT_DRY_OHMS` | 300000.0f | Resistance at 0% (300kΩ) |
+| `DEFAULT_WET_OHMS` | 1500.0f | Resistance at 100% (1.5kΩ) |
+| `ADC_MAX` | 1023 | ADC resolution |
+| `VOLTAGE_TOLERANCE` | 0.005f | Saturation threshold |
+
+### Class: ResistiveSoilSensor
+
+#### Constructors
+- `ResistiveSoilSensor(uint8_t analogPin)` - Default (PULL_UP, 510kΩ, 3.3V)
+- `ResistiveSoilSensor(uint8_t analogPin, PullMode mode)` - With pull mode
+- `ResistiveSoilSensor(uint8_t analogPin, PullMode mode, float pullOhms, float voltage)` - Full configuration
+
+#### Configuration Methods
+- `setPullMode(PullMode mode)` - Set PULL_UP or PULL_DOWN
+- `setPullResistor(float ohms)` - Set pull resistor in ohms
+- `setVoltage(float voltage)` - Set supply voltage (3.3V or 5.0V)
+- `setCalibration(float dryOhms, float wetOhms)` - Set calibration points
+- `setDigitalPin(uint8_t digitalPin)` - Set D0 pin (automatically sets pinMode to INPUT)
+- `setSmoothing(bool enable, uint8_t samples = 10)` - Enable/disable moving average smoothing
+- `setLevelThresholds(uint8_t veryDry, uint8_t dry, uint8_t moist, uint8_t wet)` - Customize moisture level thresholds
+
+#### Read Methods
+- `SensorData read()` - Read all sensor data at once
+- `uint16_t readRaw()` - Read raw ADC value (0-1023)
+- `float readVoltage()` - Read voltage in Volts
+- `float readSoilResistance()` - Read soil resistance in ohms
+- `float readMoisturePercent()` - Read moisture percentage (0-100)
+- `MoistureLevel readMoistureLevel()` - Read qualitative moisture level
+- `bool readDigitalOutput()` - Read D0 pin state (requires setDigitalPin first)
+
+#### Getters
+- `PullMode getPullMode()` - Returns current pull mode
+- `float getPullResistor()` - Returns pull resistor in ohms
+- `float getVoltage()` - Returns supply voltage
+- `float getDryOhms()` - Returns dry calibration resistance
+- `float getWetOhms()` - Returns wet calibration resistance
+- `uint8_t getAnalogPin()` - Returns analog pin number
+- `bool hasDigitalPin()` - Returns true if digital pin is configured
 
 ### Static Functions
 
-- `Calcule_Rsol(float v, float voltage, float pullUp)` - Calculate Rsol from voltage (default pullUp: 510.0)
-- `Calcule_Hsol(float r, float dry, float wet)` - Calculate humidity from resistance
-- `Calcule_Hsol_v(float v, float voltage)` - Calculate humidity from voltage (linear approximation)
-- `Calcule_Tension(float rsol, float voltage, float pullUp)` - Calculate expected voltage from Rsol
+All utility functions are now static methods of the class:
+
+| Function | Description |
+|----------|-------------|
+| `ResistiveSoilSensor::calculateSoilResistance(v, voltage, pullOhms, mode)` | Calculate Rsol from voltage |
+| `ResistiveSoilSensor::calculateMoisturePercent(resistance, dryOhms, wetOhms)` | Calculate moisture from resistance |
+| `ResistiveSoilSensor::calculateVoltage(resistance, voltage, pullOhms, mode)` | Calculate expected voltage |
+| `ResistiveSoilSensor::percentToLevel(percent, veryDry, dry, moist, wet)` | Convert percentage to qualitative level |
+
+## Calibration
+
+Default calibration values (may vary with sensor):
+
+| Condition | Rsol | Voltage (PULL_UP) |
+|----------|------|------------------|
+| Dry (0%) | > 300 kΩ | ~3.3 V |
+| Wet (100%) | ~1.5 kΩ | ~0 V |
+
+Customize:
+```cpp
+sensor.setCalibration(300000.0f, 1500.0f);  // dry, wet in ohms
+```
+
+## Migration from v1.x to v1.1.0
+
+### Breaking Changes
+
+1. **Enum syntax**: `PULL_UP` → `PullMode::PULL_UP`
+2. **Static functions**: `calculateSoilResistance(...)` → `ResistiveSoilSensor::calculateSoilResistance(...)`
+3. **Digital output**: `sensor.readDigitalOutput(pin)` → `sensor.setDigitalPin(pin)` then `sensor.readDigitalOutput()`
+4. **New features**: Added `SensorData`, `MoistureLevel`, smoothing, and level thresholds
+
+### Quick Migration Guide
+
+**v1.x code:**
+```cpp
+ResistiveSoilSensor sensor(A0, PULL_DOWN, 510000.0f, 3.3f);
+bool state = sensor.readDigitalOutput(2);
+```
+
+**v2.0 equivalent:**
+```cpp
+ResistiveSoilSensor sensor(A0, PullMode::PULL_DOWN, 510000.0f, 3.3f);
+sensor.setDigitalPin(2);
+bool state = sensor.readDigitalOutput();
+```
 
 ## Links
 
 - [AZ-Delivery Bodenfeuchtesensor](https://www.az-delivery.de/fr/products/bodenfeuchtesensor-sonde?)
 - [GitHub Repository](https://github.com/Fo170/Resistive_Sensor)
-- [Arduino Library](https://www.arduinolibrary.info/collections/libraries)
 
 ## License
 

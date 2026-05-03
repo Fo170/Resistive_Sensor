@@ -1,10 +1,45 @@
-soil
-moisture
-sensor
-resistive
-humidity
-agriculture
-garden
-watering
-irrigation
-watering
+ResistiveSoilSensor	KEYWORD1
+SensorData	KEYWORD1
+PullMode	KEYWORD1
+MoistureLevel	KEYWORD1
+CalibrationPoint	KEYWORD1
+
+read	KEYWORD2
+readRaw	KEYWORD2
+readVoltage	KEYWORD2
+readSoilResistance	KEYWORD2
+readMoisturePercent	KEYWORD2
+readMoistureLevel	KEYWORD2
+readDigitalOutput	KEYWORD2
+
+setPullMode	KEYWORD2
+setPullResistor	KEYWORD2
+setVoltage	KEYWORD2
+setCalibration	KEYWORD2
+setDigitalPin	KEYWORD2
+setSmoothing	KEYWORD2
+setLevelThresholds	KEYWORD2
+
+calculateSoilResistance	KEYWORD2
+calculateMoisturePercent	KEYWORD2
+calculateVoltage	KEYWORD2
+percentToLevel	KEYWORD2
+
+PULL_UP	LITERAL1
+PULL_DOWN	LITERAL1
+VERY_DRY	LITERAL1
+DRY	LITERAL1
+MOIST	LITERAL1
+WET	LITERAL1
+VERY_WET	LITERAL1
+ERROR	LITERAL1
+
+soil	KEYWORD3
+moisture	KEYWORD3
+sensor	KEYWORD3
+resistive	KEYWORD3
+humidity	KEYWORD3
+agriculture	KEYWORD3
+garden	KEYWORD3
+watering	KEYWORD3
+irrigation	KEYWORD3
