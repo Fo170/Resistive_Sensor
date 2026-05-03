@@ -6,11 +6,12 @@ This is the **Resistive_Sensor** Arduino library - a resistive soil moisture sen
 
 ## Key Files
 
-- `src/ResistiveSoilSensor.h` + `src/ResistiveSoilSensor.cpp` - Main library source
+- `src/ResistiveSoilSensor.h` - Main library source (single header file)
 - `library.json` - PlatformIO/library manager metadata
 - `library.properties` - Arduino IDE library metadata
 - `README.md` - Full documentation
 - `platformio.ini` - PlatformIO environments
+- `keywords.txt` - Arduino IDEkeywords
 
 ## How to Verify
 
@@ -28,29 +29,47 @@ This is the **Resistive_Sensor** Arduino library - a resistive soil moisture sen
 ```
 Resistive_Sensor/
 ├── src/
-│   ├── ResistiveSoilSensor.h
-│   └── ResistiveSoilSensor.cpp
+│   └── ResistiveSoilSensor.h    (single file - no .cpp)
 ├── examples/
-│   ├── Basic/
-│   └── StaticFunctions/
+│   ├── Basic/Basic.ino
+│   └── StaticFunctions/StaticFunctions.ino
+├── README.md
 ├── library.json
 ├── library.properties
-├── README.md
 ├── platformio.ini
-└── keywords.txt
+├── keywords.txt
+├── AGENTS.md
+├── .gitignore
+├── lien.txt
+├──电容式土壤传感器.png
+└──电容式土壤传感器 2.png
+```
+
+## Circuit Configuration
+
+```
+VCC (3.3V/5V) --[Rd=510kΩ]-- A0 --[Rsol]-- GND
+
+- Pull-up: 510kΩ (fixed on YL-69 module)
+- Rsol: Soil resistance (varies with humidity)
+- Dry soil → V_A0 ≈ VCC → 0% humidity
+- Wet soil → V_A0 ≈ GND → 100% humidity
 ```
 
 ## Publishing to GitHub
 
 ```bash
-git init
 git add .
-git commit -m "Initial release v1.0.0"
-git remote add origin https://github.com/Fo170/Resistive_Sensor.git
-git branch -M main
-git push -u origin main
+git commit -m "Update description"
+git push origin main
 ```
 
 After push, the library will be available via:
 - PlatformIO: `pio lib install Resistive_Sensor`
 - Arduino IDE: Search "Resistive_Sensor"
+
+## Current Version
+
+- Header: 1.0.0 (in source code)
+- `library.json`: 1.0.0
+- Consider syncing versions before next release

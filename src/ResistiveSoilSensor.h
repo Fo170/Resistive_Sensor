@@ -7,7 +7,7 @@
   #include <WProgram.h>
 #endif
 
-#define RESISTIVE_SENSOR_VERSION "2.0.0"
+#define RESISTIVE_SENSOR_VERSION "1.0.0"
 
 /**
  * ResistiveSoilSensor - Bibliotheque pour capteur YL-69
