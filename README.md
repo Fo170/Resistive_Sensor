@@ -2,10 +2,10 @@
 
 Arduino library for resistive soil moisture sensor. Calculates soil resistance and humidity percentage from voltage reading. Supports both PULL_UP and PULL_DOWN configurations.
 
-![GitHub last commit](https://img.shields.io/github/last-commit/Fo170/Resistive_Sensor)
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/Fo170/Resistive_Sensor)
-![PlatformIO](https://badges.platformio.net/platformio/library.svg)
-![License](https://img.shields.io/github/license/Fo170/Resistive_Sensor)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Arduino Badge](https://img.shields.io/badge/framework-arduino-brightgreen?logo=arduino.svg)](https://www.arduino.cc/)
+[![PlatformIO](https://img.shields.io/badge/platformio-All_µC-violet?logo=platformio)](https://platformio.org/)
+[![Arduino Library Badge](https://www.ardu-badge.com/badge/Resistive_Sensor.svg)](https://github.com/Fo170?tab=repositories)
 
 ## Description
 
