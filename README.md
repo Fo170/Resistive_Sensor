@@ -59,6 +59,10 @@ The YL-69 sensor module includes:
 
 ![Sensor wiring](capteur%20conductif.png)
 
+other sensor :
+
+![Sensor wiring](capteur%20conductif%202.png)
+
 ### Supported Boards
 
 - Arduino Uno, Nano, Mega
