@@ -1,6 +1,6 @@
 {
   "name": "ResistiveSoilSensor",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Arduino library for resistive soil moisture sensor (YL-69, FC-28). Calculates soil resistance, moisture percentage, and qualitative levels. Supports PULL_UP/PULL_DOWN configurations with smoothing and calibration.",
   "keywords": "soil, moisture, sensor, resistive, humidity, agriculture, garden, watering, irrigation, Arduino, ESP8266, ESP32",
   "authors": [

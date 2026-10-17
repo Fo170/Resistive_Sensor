@@ -1,5 +1,5 @@
 // Version de la librairie (source UNIQUE — agrégée par liste_lib.h)
-#define __RESISTIVESOIL_H_VERSION__ "1.1.0"
+#define __RESISTIVESOIL_H_VERSION__ "1.1.1"
 
 /**
  * @file ResistiveSoilSensor.h
