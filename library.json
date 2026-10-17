@@ -5,7 +5,7 @@
   "keywords": "soil, moisture, sensor, resistive, humidity, agriculture, garden, watering, irrigation, Arduino, ESP8266, ESP32",
   "authors": [
     {
-      "name": "FOURNET Olivier",
+      "name": "Olivier FOURNET",
       "email": "olivier.fournet@free.fr",
       "url": "https://github.com/Fo170"
     }
@@ -14,7 +14,7 @@
     "type": "git",
     "url": "https://github.com/Fo170/Resistive_Sensor.git"
   },
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "frameworks": "arduino",
   "platforms": "*",
   "source_dir": "src",

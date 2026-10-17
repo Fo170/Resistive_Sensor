@@ -1,3 +1,6 @@
+// Version de la librairie (source UNIQUE — agrégée par liste_lib.h)
+#define __RESISTIVESOIL_H_VERSION__ "1.1.0"
+
 /**
  * @file ResistiveSoilSensor.h
  * @brief Bibliothèque pour capteur d'humidité du sol résistif (YL-69 / FC-28)
